@@ -5,7 +5,7 @@ Remove duplicate files.
 Duplicate file remover (version 1.0.0)
 Removes duplicate files. Algorithm idea from rdfind.
 
-Usage of filesystem [options] <directories>:
+Usage of duplikaatti [options] <directories>:
 
 Parameters:
   -remove
@@ -13,9 +13,9 @@ Parameters:
 
 Examples:
   Test what would be removed:
-    filesystem /home/raspi/storage /mnt/storage
+    duplikaatti /home/raspi/storage /mnt/storage
   Remove files:
-    filesystem -remove /home/raspi/storage /mnt/storage
+    duplikaatti -remove /home/raspi/storage /mnt/storage
 
 Algorithm:
   1. Get file list from given directory list.
