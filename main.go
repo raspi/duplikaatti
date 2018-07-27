@@ -12,8 +12,10 @@ import (
 	"fmt"
 )
 
+var VERSION = `0.0.0`
+var BUILD = `dev`
+
 const (
-	VERSION  = `2.0.0`
 	AUTHOR   = `Pekka Järvinen`
 	YEAR     = 2018
 	HOMEPAGE = `https://github.com/raspi/duplikaatti`
@@ -52,7 +54,7 @@ func main() {
 	flag.Usage = func() {
 		f := filepath.Base(os.Args[0])
 
-		fmt.Fprintf(flag.CommandLine.Output(), "Duplicate file remover (version %v)\n", VERSION)
+		fmt.Fprintf(flag.CommandLine.Output(), "Duplicate file remover (version %v build %v)\n", VERSION, BUILD)
 		fmt.Fprintf(flag.CommandLine.Output(), "Removes duplicate files. Algorithm idea from rdfind.\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "\n")
 
