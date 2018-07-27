@@ -3,15 +3,14 @@ package main
 import (
 	"fmt"
 	"math"
-)
-
-const (
-	MEBIBYTE = 1048576
-	GIBIBYTE = 1073741824
+	"os"
 )
 
 func isPowerOfTwo(n uint64) bool {
-	return (n != 0) && (n != 1) && ((n & (n - 1)) == 0)
+	if n == 0 || n == 1 {
+		return false
+	}
+	return (n & (n - 1)) == 0
 }
 
 // Convert 1024 to '1 KiB' etc
@@ -26,7 +25,7 @@ func bytesToHuman(src uint64) string {
 
 	e := math.Floor(math.Log(s) / math.Log(base))
 	suffix := sizes[int(e)]
-	val := math.Floor(s / math.Pow(base, e) * 10 + 0.5) / 10
+	val := math.Floor(s/math.Pow(base, e)*10+0.5) / 10
 	f := "%.0f %s"
 	if val < 10 {
 		f = "%.1f %s"
@@ -35,38 +34,19 @@ func bytesToHuman(src uint64) string {
 	return fmt.Sprintf(f, val, suffix)
 }
 
-func filterByUnique(m map[uint64][]string) {
-	for fSize, files := range m {
+// is directory and exists
+func isDirectory(dir string) (b bool, err error) {
+	fi, err := os.Stat(dir)
 
-		var keepFiles []string
-
-		for _, file := range files {
-
-			exists := false
-			for _, f := range keepFiles {
-				if file == f {
-					exists = true
-					break
-				}
-			}
-
-			if !exists {
-				keepFiles = append(keepFiles, file)
-			}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, err
 		}
-
-		m[fSize] = keepFiles
 	}
 
-}
-
-// Get file and total size count
-func getFileCount(m map[uint64][]string) (fc uint64, tfs uint64) {
-	for fileSize, files := range m {
-		fCount := uint64(len(files))
-		fc += fCount
-		tfs += uint64(fileSize) * fCount
+	if !fi.IsDir() {
+		return false, fmt.Errorf(`not a directory: %v`, dir)
 	}
 
-	return fc, tfs
+	return true, nil
 }

@@ -2,21 +2,42 @@ package main
 
 import (
 	"os"
-	"fmt"
+	"log"
+	"runtime"
+	"github.com/raspi/dirscanner"
 	"time"
+	"math"
 	"flag"
 	"path/filepath"
+	"fmt"
+	"syscall"
 )
 
 const (
-	VERSION  = `1.0.0`
+	VERSION  = `2.0.0`
 	AUTHOR   = `Pekka Järvinen`
 	YEAR     = 2018
 	HOMEPAGE = `https://github.com/raspi/duplikaatti`
 )
 
+const (
+	MEBIBYTE = 1048576
+	GIBIBYTE = 1073741824
+)
+
+func getFilterFunc() dirscanner.FileValidatorFunction {
+	return func(path string, info os.FileInfo, stat syscall.Stat_t) bool {
+		return info.Mode().IsRegular() && info.Size() != 0
+	}
+}
+
+type KeepFile struct {
+	Priority uint8
+	INode    uint64
+}
+
 func main() {
-	readSize := uint64(MEBIBYTE)
+	readSize := int64(MEBIBYTE)
 
 	actuallyRemove := false
 	flag.BoolVar(&actuallyRemove, `remove`, false, `Actually remove files.`)
@@ -44,15 +65,13 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Algorithm:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Get file list from given directory list.\n", ai)
 		ai++
-		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Remove all non-unique files (files in same path).\n", ai)
-		ai++
 		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Remove all orphans (only one file with same size).\n", ai)
 		ai++
-		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Read first %v bytes (%v) of files.\n", ai, readSize, bytesToHuman(readSize))
+		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Read first %v bytes (%v) of files.\n", ai, readSize, bytesToHuman(uint64(readSize)))
 		ai++
 		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Remove all orphans.\n", ai)
 		ai++
-		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Read last %v bytes (%v) of files.\n", ai, readSize, bytesToHuman(readSize))
+		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Read last %v bytes (%v) of files.\n", ai, readSize, bytesToHuman(uint64(readSize)))
 		ai++
 		fmt.Fprintf(flag.CommandLine.Output(), "  %v. Remove all orphans.\n", ai)
 		ai++
@@ -75,7 +94,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !isPowerOfTwo(readSize) {
+	if !isPowerOfTwo(uint64(readSize)) {
 		fmt.Printf(`readSize (%v) is not power of two`, readSize)
 		os.Exit(1)
 	}
@@ -91,176 +110,180 @@ func main() {
 		}
 	}
 
-	fileList := make(map[uint64][]string, 0)
-	//                   |      List of files
-	//                    ----->File size
-
 	if actuallyRemove {
-		fmt.Printf("ACTUALLY DELETING FILES! PRESS CTRL+C TO ABORT!\n")
+		log.Printf("ACTUALLY DELETING FILES! PRESS CTRL+C TO ABORT!")
 	} else {
-		fmt.Printf("Note: Not actually deleting files (dry run)\n")
+		log.Printf("Note: Not actually deleting files (dry run)")
 	}
-
-	fmt.Printf("Generating file list (1/7)..\n")
 
 	// Ticker for stats
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
-	startTime := time.Now()
+	now := time.Now()
+	workerCount := runtime.NumCPU()
 
-	// Generate file listing
+	dupes := New(ticker, &now, workerCount)
+
+	filterFunc := getFilterFunc()
+
+	// look-up table for inodes
+	seenInodes := map[uint64]bool{}
+
+	log.Printf(`Generating file list..`)
+
+	// First get a recursive file listing
 	for _, dir := range dirs {
-		err := listFiles(ticker, startTime, fileList, dir)
+		scanner := dirscanner.New()
+
+		err := scanner.Init(workerCount*2, filterFunc)
 		if err != nil {
 			panic(err)
 		}
-	}
-	fmt.Printf("\n")
 
-	fileCount, totalSize := getFileCount(fileList)
-	fmt.Printf("File count after file list generation: %v (%v)\n", fileCount, bytesToHuman(totalSize))
+		err = scanner.ScanDirectory(dir)
+		if err != nil {
+			panic(err)
+		}
 
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
+		prio := uint8(math.MaxUint8)
+		lastDir := ``
+		lastFile := ``
+		fileCount := 0
 
-	// If user gave colliding paths (ex. /storage & /storage/foo) by accident, remove all non-unique files
-	fmt.Printf("Removing non-unique files (2/7)..\n")
-	filterByUnique(fileList)
+	scanloop:
+		for {
+			select {
 
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("File count after removing non-unique files: %v (%v)\n", fileCount, bytesToHuman(totalSize))
+			case <-scanner.Finished: // Finished getting file list
+				log.Printf(`got all files`)
+				break scanloop
 
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Removing orphans..\n")
-	filterByRemoveOrphans(fileList)
-
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("File count after removing orphans: %v (%v)\n", fileCount, bytesToHuman(totalSize))
-
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	// Read first N bytes of files
-	fmt.Printf("Reading first %v bytes (%v) ~%v (3/7)..\n", readSize, bytesToHuman(readSize), bytesToHuman(readSize*fileCount))
-	filterByFuncBytes(startTime, fileList, readSize, GetFirstBytes)
-
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("\nFile count after reading first bytes of files: %v (%v)\n", fileCount, bytesToHuman(totalSize))
-
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Removing orphans..\n")
-	filterByRemoveOrphans(fileList)
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("File count after removing orphans: %v (%v)\n", fileCount, bytesToHuman(totalSize))
-
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	// Read last N bytes of files
-	fmt.Printf("Reading last %v bytes (%v) ~%v (4/7)..\n", readSize, bytesToHuman(readSize), bytesToHuman(readSize*fileCount))
-	filterByFuncBytes(startTime, fileList, readSize, GetLastBytes)
-
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("\nFile count after reading last bytes of files: %v (%v)\n", fileCount, bytesToHuman(totalSize))
-
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Removing orphans..\n")
-	filterByRemoveOrphans(fileList)
-
-	fileCount, totalSize = getFileCount(fileList)
-	fmt.Printf("File count after removing orphans: %v (%v)\n", fileCount, bytesToHuman(totalSize))
-
-	if fileCount < 2 {
-		fmt.Printf("No possible duplicates.\n")
-		os.Exit(1)
-	}
-
-	// Calculate hashes of files that are left
-	fmt.Printf("Hashing (5/7)..\n")
-	dupes := calculateHashes(startTime, fileList)
-
-	fmt.Printf("\nCollecting duplicates (6/7..)\n")
-
-	var duplicateFileList []duplicateFile
-
-	for fSize, same := range dupes {
-		for csum, files := range same {
-			var df duplicateFile
-
-			df.CheckSum = csum
-			df.Size = fSize
-
-			for idx, file := range files {
-				if idx == 0 {
-					// Keep first file
-					df.Keep = file
-					continue
+			case e, ok := <-scanner.Errors: // Error happened, handle, discard or abort
+				if ok {
+					log.Printf(`got error: %v`, e)
+					//s.Aborted <- true // Abort
 				}
 
-				df.Remove = append(df.Remove, file)
-			}
 
-			duplicateFileList = append(duplicateFileList, df)
+			case info, ok := <-scanner.Information: // Got information where worker is currently
+				if ok {
+					lastDir = info.Directory
+				}
+
+
+			case <-ticker.C: // Display some progress stats
+				log.Printf(`%v Files scanned: %v Last file: %#v Dir: %#v`, time.Since(now).Truncate(time.Second), fileCount, lastFile, lastDir)
+
+			case res, ok := <-scanner.Results:
+				if ok {
+					fileCount++
+					lastFile = res.Path
+
+					_, iok := seenInodes[res.Stat.Ino]
+
+					if !iok {
+						seenInodes[res.Stat.Ino] = true
+						dupes.AddFile(newFileInfo(prio, res.Path, res.Stat.Ino, res.FileInfo))
+					}
+				}
+			}
 		}
-	}
 
-	fmt.Printf("Removing duplicates (7/7)..\n")
-	removeFileCount := uint64(0) // How many files are deleted
-	removeFileSize := uint64(0) // How much space is freed
+		scanner.Close()
 
-	// Remove files
-	for _, d := range duplicateFileList {
-		for _, f := range d.Remove {
-			s, err := os.Stat(f)
-			if err != nil {
-				panic(err)
+		prio--
+	} // End of recursive scan
+
+	// Now we have list of files sorted by key = file size
+
+	log.Printf(`File list generated..`)
+
+	dupes.ReportStats()
+	log.Printf(`Removing orphans..`)
+	dupes.RemoveFileOrphans()
+	log.Printf(`Getting file information..`)
+	dupes.ReportStats()
+	log.Printf(`Reading first bytes..`)
+	dupes.RemoveBasedOnBytes(readSize, READ_FIRST)
+	dupes.ReportStats()
+	log.Printf(`Reading last bytes..`)
+	dupes.RemoveBasedOnBytes(readSize, READ_LAST)
+	dupes.ReportStats()
+
+	deletedCount := uint64(0)
+	deletedSize := uint64(0)
+
+	log.Printf(`Hashing files..`)
+
+	hashed := dupes.HashDuplicates(readSize)
+	dupes.Reset()
+
+	for _, v := range GetDuplicateList(hashed) {
+		for idx, f := range v {
+			if idx == 0 {
+				log.Printf(`Keeping %v`, f.Path)
+				continue
 			}
 
-			if uint64(s.Size()) != d.Size {
-				fmt.Printf(`File size mismatch: %v`, f)
-				fmt.Printf(`Aborting.`)
-				os.Exit(1)
-			}
-		}
+			deletedSize += uint64(f.Info.Size())
+			deletedCount++
 
-		fmt.Printf("  Checksum: %v Size: %v bytes (%v)\n", d.CheckSum, d.Size, bytesToHuman(d.Size))
-		fmt.Printf("  Keep: %v\n", d.Keep)
+			log.Printf(`Deleting %v`, f.Path)
 
-		// Remove files
-		for _, f := range d.Remove {
-			removeFileCount++
-			removeFileSize += d.Size
-			fmt.Printf("  Remove: %v\n", f)
 			if actuallyRemove {
-				// Remove file
-				os.Remove(f)
+				err := os.Remove(f.Path)
+
+				if err != nil {
+					log.Printf(`%v`, err)
+				}
 			}
 		}
-
-		fmt.Printf("\n")
 	}
 
-	fmt.Printf("Took %v\n", time.Since(startTime).Truncate(time.Second))
+	log.Printf(`Deleted %v files, %v`, deletedCount, bytesToHuman(deletedSize))
+	log.Printf(`Took %v`, time.Since(now).Truncate(time.Second))
+	log.Printf(`Done.`)
 
-	fmt.Printf("Removed file count: %v Size: %v\n", removeFileCount, bytesToHuman(removeFileSize))
-	fmt.Printf("Done.\n")
+}
 
+func GetDuplicateList(m map[string]map[int64][]FileInfo) (dupes [][]FileInfo) {
+	for _, sizeKey := range m {
+		for _, files := range sizeKey {
+
+			var selected []FileInfo
+
+			// Find best candidate
+			bestCandidateFile := KeepFile{
+				Priority: 0,
+				INode:    math.MaxUint64,
+			}
+
+			for _, file := range files {
+				if file.INode < bestCandidateFile.INode && file.Priority >= bestCandidateFile.Priority {
+					bestCandidateFile.INode = file.INode
+					bestCandidateFile.Priority = file.Priority
+				}
+			}
+
+			// List what to keep and discard
+			var keep FileInfo
+			var discard []FileInfo
+
+			for _, file := range files {
+				if file.INode == bestCandidateFile.INode {
+					keep = file
+				} else {
+					discard = append(discard, file)
+				}
+			}
+
+			selected = append(selected, keep)
+			selected = append(selected, discard...)
+
+			dupes = append(dupes, selected)
+
+		}
+	}
+
+	return dupes
 }
