@@ -194,7 +194,7 @@ func main() {
 		prio--
 	} // End of recursive scan
 
-	// Now we have list of files sorted by key = file size
+	// Now we have list of files
 
 	log.Printf(`File list generated..`)
 
