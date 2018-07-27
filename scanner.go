@@ -6,7 +6,7 @@ import (
 )
 
 type DupeScanner struct {
-	files       []FileInfo
+	files       []fileInfo
 	ticker      *time.Ticker
 	workerCount int
 	startTime   *time.Time
@@ -14,7 +14,7 @@ type DupeScanner struct {
 
 func New(ticker *time.Ticker, startTime *time.Time, workerCount int) DupeScanner {
 	d := DupeScanner{
-		files:       []FileInfo{},
+		files:       []fileInfo{},
 		ticker:      ticker,
 		workerCount: workerCount,
 		startTime:   startTime,
@@ -25,7 +25,7 @@ func New(ticker *time.Ticker, startTime *time.Time, workerCount int) DupeScanner
 
 func (ds *DupeScanner) GetFileCount() (l int, ts uint64) {
 	for _, f := range ds.files {
-		ts += uint64(f.Info.Size())
+		ts += uint64(f.Size)
 	}
 
 	return len(ds.files), ts
@@ -33,13 +33,13 @@ func (ds *DupeScanner) GetFileCount() (l int, ts uint64) {
 
 // RemoveFileOrphans removes all files that do not share file sizes
 func (ds *DupeScanner) RemoveFileOrphans() {
-	fileSizeCounts := map[int64]uint64{}
+	fileSizeCounts := map[uint64]uint64{}
 
 	for _, f := range ds.files {
-		fileSizeCounts[f.Info.Size()]++
+		fileSizeCounts[f.Size]++
 	}
 
-	fileSizeHasDupes := map[int64]bool{}
+	fileSizeHasDupes := map[uint64]bool{}
 
 	for fileSize, fileCount := range fileSizeCounts {
 		if fileCount > 1 {
@@ -49,10 +49,10 @@ func (ds *DupeScanner) RemoveFileOrphans() {
 
 	fileSizeCounts = nil
 
-	var newFiles []FileInfo
+	var newFiles []fileInfo
 
 	for _, f := range ds.files {
-		_, ok := fileSizeHasDupes[f.Info.Size()]
+		_, ok := fileSizeHasDupes[f.Size]
 
 		if !ok {
 			continue
@@ -129,7 +129,7 @@ func (ds *DupeScanner) RemoveBasedOnBytes(readSize int64, rt ReadOperationType) 
 
 	hashMap = nil
 
-	var newFiles []FileInfo
+	var newFiles []fileInfo
 	for _, file := range ds.files {
 		_, ok := keepInodes[file.INode]
 		if !ok {
@@ -147,16 +147,16 @@ func (ds *DupeScanner) RemoveBasedOnBytes(readSize int64, rt ReadOperationType) 
 }
 
 // Hash whole files
-func (ds *DupeScanner) HashDuplicates(readSize int64) (m map[string]map[int64][]FileInfo) {
-	m = make(map[string]map[int64][]FileInfo)
+func (ds *DupeScanner) HashDuplicates(readSize int64) (m map[string]map[uint64][]fileInfo) {
+	m = make(map[string]map[uint64][]fileInfo)
 
 	fbw := ds.startWorker(readSize, READ_WHOLE)
 
 	for res := range fbw.Results {
 		if m[res.Hash] == nil {
-			m[res.Hash] = make(map[int64][]FileInfo)
+			m[res.Hash] = make(map[uint64][]fileInfo)
 		}
-		m[res.Hash][res.Info.Info.Size()] = append(m[res.Hash][res.Info.Info.Size()], res.Info)
+		m[res.Hash][res.Info.Size] = append(m[res.Hash][res.Info.Size], res.Info)
 	}
 
 	return m
@@ -172,7 +172,7 @@ func (ds *DupeScanner) ReportStats() {
 	log.Printf(`%v files %v`, fileCount, bytesToHuman(totalSize))
 }
 
-func (ds *DupeScanner) AddFile(info FileInfo) (err error) {
+func (ds *DupeScanner) AddFile(info fileInfo) (err error) {
 	ds.files = append(ds.files, info)
 	return nil
 }

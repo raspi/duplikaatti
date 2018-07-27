@@ -12,7 +12,7 @@ import (
 
 type hasherWorkerResult struct {
 	Hash string
-	Info FileInfo
+	Info fileInfo
 }
 
 type ReadOperationType uint8
@@ -25,7 +25,7 @@ const (
 
 type hasherWorker struct {
 	Errors         chan error
-	Jobs           chan FileInfo
+	Jobs           chan fileInfo
 	Results        chan hasherWorkerResult
 	Wg             *sync.WaitGroup
 	readSize       int64
@@ -39,7 +39,7 @@ func NewBytesWorker(t *time.Ticker, st *time.Time, workerCount int, readSize int
 	now := time.Now()
 
 	w := hasherWorker{
-		Jobs:           make(chan FileInfo, workerCount*2),
+		Jobs:           make(chan fileInfo, workerCount*2),
 		Results:        make(chan hasherWorkerResult, 100),
 		Errors:         make(chan error),
 		Wg:             &sync.WaitGroup{},

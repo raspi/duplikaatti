@@ -1,19 +1,21 @@
 package main
 
-import "os"
+import (
+	"github.com/raspi/dirscanner"
+)
 
-type FileInfo struct {
+type fileInfo struct {
 	Priority uint8  // Priority
 	Path     string // Path to file
-	INode    uint64
-	Info     os.FileInfo
+	INode    uint64 // INode
+	Size     uint64 // File size
 }
 
-func newFileInfo(priority uint8, path string, inode uint64, info os.FileInfo) FileInfo {
-	return FileInfo{
+func newFileInfo(priority uint8, info dirscanner.FileInformation) fileInfo {
+	return fileInfo{
 		Priority: priority,
-		Path:     path,
-		INode:    inode,
-		Info:     info,
+		Path:     info.Path,
+		INode:    info.Identifier,
+		Size:     info.Size,
 	}
 }

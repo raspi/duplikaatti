@@ -10,7 +10,6 @@ import (
 	"flag"
 	"path/filepath"
 	"fmt"
-	"syscall"
 )
 
 const (
@@ -26,8 +25,16 @@ const (
 )
 
 func getFilterFunc() dirscanner.FileValidatorFunction {
-	return func(path string, info os.FileInfo, stat syscall.Stat_t) bool {
-		return info.Mode().IsRegular() && info.Size() != 0
+	return func(info dirscanner.FileInformation) bool {
+		if info.Size == 0 {
+			return false
+		}
+
+		if info.Mode&os.ModeType != 0 {
+			return false
+		}
+
+		return true
 	}
 }
 
@@ -179,11 +186,11 @@ func main() {
 					fileCount++
 					lastFile = res.Path
 
-					_, iok := seenInodes[res.Stat.Ino]
+					_, iok := seenInodes[res.Identifier]
 
 					if !iok {
-						seenInodes[res.Stat.Ino] = true
-						dupes.AddFile(newFileInfo(prio, res.Path, res.Stat.Ino, res.FileInfo))
+						seenInodes[res.Identifier] = true
+						dupes.AddFile(newFileInfo(prio, res))
 					}
 				}
 			}
@@ -225,7 +232,7 @@ func main() {
 				continue
 			}
 
-			deletedSize += uint64(f.Info.Size())
+			deletedSize += uint64(f.Size)
 			deletedCount++
 
 			log.Printf(`Deleting %v`, f.Path)
@@ -246,11 +253,11 @@ func main() {
 
 }
 
-func GetDuplicateList(m map[string]map[int64][]FileInfo) (dupes [][]FileInfo) {
+func GetDuplicateList(m map[string]map[uint64][]fileInfo) (dupes [][]fileInfo) {
 	for _, sizeKey := range m {
 		for _, files := range sizeKey {
 
-			var selected []FileInfo
+			var selected []fileInfo
 
 			// Find best candidate
 			bestCandidateFile := KeepFile{
@@ -266,8 +273,8 @@ func GetDuplicateList(m map[string]map[int64][]FileInfo) (dupes [][]FileInfo) {
 			}
 
 			// List what to keep and discard
-			var keep FileInfo
-			var discard []FileInfo
+			var keep fileInfo
+			var discard []fileInfo
 
 			for _, file := range files {
 				if file.INode == bestCandidateFile.INode {
