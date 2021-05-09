@@ -1,4 +1,10 @@
 # duplikaatti
+
+![GitHub All Releases](https://img.shields.io/github/downloads/raspi/duplikaatti/total?style=for-the-badge)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/raspi/duplikaatti?style=for-the-badge)
+![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/raspi/duplikaatti?style=for-the-badge)
+
+
 Remove duplicate files and do it fast. `duplikaatti` is designed to go through 50 TiB+ of data and hundreds of thousands of files and find duplicate files in few minutes.
 
 ## Algorithm
