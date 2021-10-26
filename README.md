@@ -12,17 +12,17 @@ Remove duplicate files and do it fast. `duplikaatti` is designed to go through 5
   * do not add files with same identifier already added to the list (windows: file id, *nix: inode)
   * do not add 0 byte files
   * directories listed first has higher priority than the last
-* Remove all files which do not share same file sizes (ie. there's only one 1000 byte file -> remove)
+* Remove all files from the list which do not share same file sizes (ie. there's only one 1000 byte file -> remove)
 * Read first bytes of files and generate SHA256 sum of those bytes
-* Remove all hashes which occured only once
+* Remove all hashes from the list which occured only once
 * Read last bytes of files and generate SHA256 sum of those bytes
-* Remove all hashes which occured only once
+* Remove all hashes from the list which occured only once
 * Now finally hash the whole files that are left
-* Remove all hashes which occured only once
+* Remove all hashes from the list which occured only once
 * Generate list of files to keep and what to remove
   * use directory priority and file age to find what to keep 
     * oldest and highest priority files are kept
-* Finally, remove files
+* Finally, remove files from filesystem(s)
 
 ## Usage
 ```
